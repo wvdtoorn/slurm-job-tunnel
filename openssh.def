@@ -1,0 +1,13 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    # Update package lists and install dependencies
+    apt-get update 
+    apt-get install -y openssh-server
+
+    echo "
+    UsePAM=no
+    " > /etc/ssh/sshd_config
+
+
