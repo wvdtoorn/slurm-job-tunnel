@@ -32,8 +32,4 @@ PORT=${port}
 NODE=${node}
 "
 
-# in loop such that sshd restarts when connection is locally exited
-end_time=$(date -d "+ ${TIME} minutes" +%s )
-while [ $(date +%s) -lt $end_time ]; do
-    singularity exec REMOTE_SIF_PATH /usr/sbin/sshd -p ${port} -d
-done
+singularity exec REMOTE_SIF_PATH /usr/sbin/sshd -p ${port} -D
