@@ -27,9 +27,7 @@ node=$(hostname -s)
 port=$(python -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()') # random available port
 
 # Tunneling instructions
-echo -e "
-PORT=${port}
-NODE=${node}
-"
+echo "NODE=${node}"
+echo "PORT=${port}"
 
 singularity exec -B /scratch/$USER:/scratch/$USER REMOTE_SIF_PATH /usr/sbin/sshd -p ${port} -D
