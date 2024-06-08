@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -92,11 +93,12 @@ class JobTunnel:
         self.job_id = result.stdout.strip().split()[-1]
 
     def cancel_slurm_job(self) -> None:
-        subprocess.run(["ssh", self.remote_host, f"scancel {self.job_id}"])
-        logging.info("Cancelled the SLURM job")
+        if self.job_status in ["PENDING", "RUNNING", "STOPPED"]:
+            subprocess.run(["ssh", self.remote_host, f"scancel {self.job_id}"])
+            logging.info("Cancelled the SLURM job")
 
     @property
-    def job_started(self) -> bool:
+    def job_status(self) -> str:
         result = subprocess.run(
             [
                 "ssh",
@@ -107,7 +109,11 @@ class JobTunnel:
             text=True,
         )
         job_status = result.stdout.strip()
-        return job_status == "RUNNING"
+        return job_status
+
+    @property
+    def job_running(self) -> bool:
+        return self.job_status == "RUNNING"
 
     def watch_output_for_text(self, watch_text: str, wait_time: float = 0.01) -> str:
         while True:
@@ -123,7 +129,7 @@ class JobTunnel:
             time.sleep(wait_time)
 
     def get_tunnel_info(self) -> Tuple[str, str]:
-        if not self.job_started:
+        if not self.job_running:
             raise ValueError("Job is not running")
         output = self.watch_output_for_text("PORT=")
         port = output.split("=")[1]
@@ -165,6 +171,11 @@ class JobTunnel:
         os.remove(SBATCH_SCRIPT + ".local")
 
 
+def is_code_installed() -> bool:
+    """Check if 'code' (Visual Studio Code) is installed in the system's PATH."""
+    return shutil.which("code") is not None
+
+
 def get_code_pids():
     code_pids = []
     for proc in psutil.process_iter(["pid", "cmdline"]):
@@ -201,6 +212,26 @@ def kill_code_processes(dont_kill_pids: List[int] = None):
     logging.info("Killed code processes")
 
 
+def cleanup(
+    job_tunnel: JobTunnel = None,
+    ssh_config: SSHConfig = None,
+    tunnel_entry: SSHEntry = None,
+    prev_code_pids: List[int] = None,
+) -> None:
+    logging.info("Cleaning up")
+    if job_tunnel:
+        job_tunnel.cancel_slurm_job()  # has own logging
+
+    if prev_code_pids:
+        kill_code_processes(dont_kill_pids=prev_code_pids)  # has own logging
+
+    if ssh_config and tunnel_entry:
+        ssh_config.remove_entry(tunnel_entry.host)
+        logging.info("Cleaned up SSH config")
+
+    logging.info("All cleaned up. Goodbye!")
+
+
 def main() -> None:
     args = parser.parse_args()
 
@@ -213,10 +244,7 @@ def main() -> None:
         remote_sif_path=args.remote_sif_path,
     )
 
-    def signal_handler1(sig, frame):
-        job_tunnel.cancel_slurm_job()
-
-    signal.signal(signal.SIGINT, signal_handler1)
+    signal.signal(signal.SIGINT, lambda sig, frame: cleanup(job_tunnel=job_tunnel))
 
     logging.info("Validating SSH config")
     ssh_config_path = os.path.expanduser("~/.ssh/config")
@@ -230,7 +258,7 @@ def main() -> None:
     logging.info(f"Submitted batch job {job_tunnel.job_id}")
     logging.info("Waiting for job to start")
 
-    while not job_tunnel.job_started:
+    while not job_tunnel.job_running:
         logging.info("Job is queued")
         time.sleep(5)
 
@@ -257,30 +285,53 @@ def main() -> None:
     ssh_config.update_config(tunnel_entry)
 
     logging.info(f"Added tunnel host '{tunnel_entry.host}' to {ssh_config_path}")
-    logging.info(
-        f"Starting code IDE application. Please connect your window to Host '{tunnel_entry.host}'"
+
+    signal.signal(
+        signal.SIGINT,
+        lambda sig, frame: cleanup(
+            job_tunnel=job_tunnel, ssh_config=ssh_config, tunnel_entry=tunnel_entry
+        ),
     )
+
+    prev_code_pids = None
+    if is_code_installed():
+        logging.info("Starting code IDE application")
+        # code starts up multiple processes, so we need to kill them later
+        prev_code_pids = get_code_pids()
+        subprocess.Popen("code")
+
+        signal.signal(
+            signal.SIGINT,
+            lambda sig, frame: cleanup(
+                job_tunnel=job_tunnel,
+                ssh_config=ssh_config,
+                tunnel_entry=tunnel_entry,
+                prev_code_pids=prev_code_pids,
+            ),
+        )
+
+    else:
+        logging.info("Code is not installed. Skipping code IDE application startup.")
+        logging.info(
+            f"You can still use the tunnel manually, using 'ssh {tunnel_entry.host}'"
+        )
+
     logging.info(
-        "To close the tunnel / cancel the slurm job, stop this script by pressing Ctrl+C. "
-        "This will also terminate the code IDE process."
+        "To cancel the slurm job and close this job tunnel, stop this script by pressing Ctrl+C. "
+        "This will also terminate any started code IDE processes."
     )
 
-    # code starts up multiple processes, so we need to kill them later
-    prev_code_pids = get_code_pids()
-    subprocess.Popen("code")
+    time.sleep((job_tunnel.time - 1) * 60)
+    logging.info("Tunnel will close in <1 minute!")
+    time.sleep(60)
+    logging.info("Tunnel closed")
 
-    # update signal handler to terminate the slurm job and both code processes
-    def signal_handler2(sig, frame):
-        logging.info("Terminating the SLURM job and the code processes")
-        job_tunnel.cancel_slurm_job()
-        kill_code_processes(dont_kill_pids=prev_code_pids)
-        logging.info("All cleaned up. Goodbye!")
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler2)
-
-    time.sleep(job_tunnel.time * 60)
-    job_tunnel.cancel_slurm_job()
+    cleanup(
+        job_tunnel=job_tunnel,
+        ssh_config=ssh_config,
+        tunnel_entry=tunnel_entry,
+        prev_code_pids=prev_code_pids,
+    )
 
 
 if __name__ == "__main__":
