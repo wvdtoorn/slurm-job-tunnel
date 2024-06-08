@@ -32,4 +32,4 @@ PORT=${port}
 NODE=${node}
 "
 
-singularity exec REMOTE_SIF_PATH /usr/sbin/sshd -p ${port} -D
+singularity exec -B /scratch/$USER:/scratch/$USER REMOTE_SIF_PATH /usr/sbin/sshd -p ${port} -D
