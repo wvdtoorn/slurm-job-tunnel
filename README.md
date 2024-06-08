@@ -115,9 +115,9 @@ slurm-job-tunnel init [options]
 
 This will create a config file located at `~/.slurm-job-tunnel/config.json` with the provided arguments, which henceforth will be used as defaults for the `run` command.
 
-### Run a job tunnel
+### Create a job tunnel
 
-To run a job tunnel, run:
+To create a job tunnel, run:
 
 ```sh
 slurm-job-tunnel run [options]
