@@ -1,2 +1,4 @@
 __pycache__/
-
+slurm_job_tunnel_config.json
+*.egg-info
+build*

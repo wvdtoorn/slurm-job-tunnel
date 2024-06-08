@@ -36,7 +36,7 @@ class SSHConfig:
     def get_entry(self, host):
         # read ssh config file until the entry Host host begins, read it until the next entry or the end of the file (whichever comes first) and remove empty lines
         if not self.contains_host(host):
-            raise ValueError(f"Host {host} not found in ssh config")
+            raise ValueError(f"Remote host '{host}' not found in ssh config")
 
         entry = SSHEntry(host=host)
         in_entry = False

@@ -5,14 +5,19 @@ import subprocess
 import time
 import logging
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 import psutil
 import sys
 
-from slurm_job_tunnel.ssh_config import SSHConfig, SSHEntry
+from .ssh_config import SSHConfig, SSHEntry
 
-SBATCH_SCRIPT = os.path.join(os.path.dirname(__file__), "tunnel.sbatch")
+if TYPE_CHECKING:
+    from .tunnel_config import TunnelConfig
+
+SBATCH_SCRIPT = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "tunnel.sbatch"
+)
 
 # Configure logging
 logging.basicConfig(
@@ -152,16 +157,6 @@ class JobTunnel:
 
         return self.port, self.node, self.termination_time
 
-    def sync_job_script(self) -> None:
-        command = [
-            "rsync",
-            "-az",
-            SBATCH_SCRIPT,
-            f"{self.remote_host}:~/{self.job_command.script}",
-        ]
-        subprocess.run(command)
-        logging.info("Synced job script to remote host")
-
 
 def is_code_installed() -> bool:
     """Check if 'code' (Visual Studio Code) is installed in the system's PATH."""
@@ -211,7 +206,7 @@ def cleanup(
     prev_code_pids: List[int] = None,
     exit: bool = False,
 ) -> None:
-    logging.info("Cleaning up")
+    logging.info("Cleaning up the tunnel...")
     if job_tunnel:
         job_tunnel.cancel_slurm_job()  # has own logging
 
@@ -227,26 +222,29 @@ def cleanup(
         sys.exit(0)
 
 
-def main() -> None:
-    args = parser.parse_args()
+def run_tunnel(config: "TunnelConfig") -> None:
 
     job_command = SBatchCommand(
-        script=args.remote_sbatch_path,
-        time=args.time,
-        cpus=args.cpus,
-        mem=args.mem,
-        qos=args.qos,
-        partition=args.partition,
-        output=args.remote_sbatch_path.replace(".sbatch", ".out"),
+        script=config.remote_sbatch_path,
+        time=config.time,
+        cpus=config.cpus,
+        mem=config.mem,
+        qos=config.qos,
+        partition=config.partition,
+        output=config.remote_sbatch_path.replace(".sbatch", ".out"),
         export=[
-            (f"SIF_BIND_PATH=" + f"{args.sif_bind_path}" if args.sif_bind_path else ""),
-            f"SIF_IMAGE={args.remote_sif_path}",
+            (
+                f"SIF_BIND_PATH=" + f"{config.sif_bind_path}"
+                if config.sif_bind_path
+                else ""
+            ),
+            f"SIF_IMAGE={config.remote_sif_path}",
         ],
     )
 
     job_tunnel = JobTunnel(
         job_command=job_command,
-        remote_host=args.remote_host,
+        remote_host=config.remote_host,
     )
 
     signal.signal(
@@ -254,16 +252,22 @@ def main() -> None:
         lambda sig, frame: cleanup(job_tunnel=job_tunnel, exit=True),
     )
 
-    logging.info("Validating SSH config")
+    logging.info(
+        f"Validating SSH config (~/.ssh/config). Host: {job_tunnel.remote_host}"
+    )
     ssh_config_path = os.path.expanduser("~/.ssh/config")
     ssh_config = SSHConfig(ssh_config_path)
     remote_entry: SSHEntry = ssh_config.get_entry(job_tunnel.remote_host)
 
-    logging.info("Syncing job script to remote host")
-    job_tunnel.sync_job_script()
+    logging.info(
+        f"Validated SSH config (~/.ssh/config). Host: {job_tunnel.remote_host}"
+    )
+
+    logging.info(f"Submitting tunnel.sbatch job to {job_tunnel.remote_host}")
+    logging.info(f"Job command: {job_command.command()}")
 
     job_id = job_tunnel.submit_slurm_job()
-    logging.info(f"Submitted sbatch job {job_id}")
+    logging.info(f"Submitted tunnel.sbatch job. Job ID: {job_id}")
     logging.info("Waiting for job to start")
 
     while not job_tunnel.job_running:
@@ -273,7 +277,7 @@ def main() -> None:
     logging.info("Job is running")
     port, node, termination_time = job_tunnel.get_tunnel_info()
 
-    logging.info("Tunnel established (node={node}, port={port})")
+    logging.info(f"Tunnel established (node={node}, port={port})")
     logging.info(
         f"This tunnel will terminate at {termination_time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
@@ -341,7 +345,3 @@ def main() -> None:
         prev_code_pids=prev_code_pids,
         exit=True,
     )
-
-
-if __name__ == "__main__":
-    main()
