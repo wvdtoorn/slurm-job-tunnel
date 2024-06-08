@@ -69,6 +69,10 @@ python job_tunnel.py --time <minutes> --remote_host <host> [options]
 - `--remote_script_path`: Path from the home directory of the remote user to the remote script to be executed (default: tunnel.sbatch)
 - `--remote_sif_path`: Path from the home directory of the remote user to the remote singularity image to be executed (default: singularity/openssh.sif)
 
+## Future work
+
+- [ ] Make sure only `USER` can access the tunnel
+
 ## License
 
 This project is licensed under the MIT License.
