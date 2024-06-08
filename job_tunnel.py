@@ -6,8 +6,9 @@ import sys
 import time
 import logging
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import List, Tuple
 from dataclasses import dataclass
+import psutil
 
 from ssh_config import SSHConfig, SSHEntry
 
@@ -91,9 +92,8 @@ class JobTunnel:
         self.job_id = result.stdout.strip().split()[-1]
 
     def cancel_slurm_job(self) -> None:
-        logging.info("Canceling the SLURM job")
         subprocess.run(["ssh", self.remote_host, f"scancel {self.job_id}"])
-        sys.exit(1)
+        logging.info("Cancelled the SLURM job")
 
     @property
     def job_started(self) -> bool:
@@ -165,6 +165,42 @@ class JobTunnel:
         os.remove(SBATCH_SCRIPT + ".local")
 
 
+def get_code_pids():
+    code_pids = []
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if f"{os.sep}code" in " ".join(proc.info["cmdline"]):
+                code_pids.append(proc.info["pid"])
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+            FileNotFoundError,
+        ):
+            pass
+
+    return code_pids
+
+
+def kill_code_processes(dont_kill_pids: List[int] = None):
+    code_pids = get_code_pids()
+    for pid in code_pids:
+        if dont_kill_pids and pid in dont_kill_pids:
+            continue
+        try:
+            psutil.Process(pid).terminate()
+            psutil.wait_procs([psutil.Process(pid)], timeout=0.1)
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+            FileNotFoundError,
+        ):
+            pass
+
+    logging.info("Killed code processes")
+
+
 def main() -> None:
     args = parser.parse_args()
 
@@ -177,10 +213,10 @@ def main() -> None:
         remote_sif_path=args.remote_sif_path,
     )
 
-    def signal_handler(sig, frame):
+    def signal_handler1(sig, frame):
         job_tunnel.cancel_slurm_job()
 
-    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler1)
 
     logging.info("Validating SSH config")
     ssh_config_path = os.path.expanduser("~/.ssh/config")
@@ -222,13 +258,27 @@ def main() -> None:
 
     logging.info(f"Added tunnel host '{tunnel_entry.host}' to {ssh_config_path}")
     logging.info(
-        f"Starting IDE application. Please connect your window to Host'{tunnel_entry.host}'"
+        f"Starting code IDE application. Please connect your window to Host '{tunnel_entry.host}'"
     )
     logging.info(
-        "To close the tunnel / cancel the slurm job, stop this script by pressing Ctrl+C"
+        "To close the tunnel / cancel the slurm job, stop this script by pressing Ctrl+C. "
+        "This will also terminate the code IDE process."
     )
 
+    # code starts up multiple processes, so we need to kill them later
+    prev_code_pids = get_code_pids()
     subprocess.Popen("code")
+
+    # update signal handler to terminate the slurm job and both code processes
+    def signal_handler2(sig, frame):
+        logging.info("Terminating the SLURM job and the code processes")
+        job_tunnel.cancel_slurm_job()
+        kill_code_processes(dont_kill_pids=prev_code_pids)
+        logging.info("All cleaned up. Goodbye!")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler2)
+
     time.sleep(job_tunnel.time * 60)
     job_tunnel.cancel_slurm_job()
 
