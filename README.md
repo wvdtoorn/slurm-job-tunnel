@@ -1,12 +1,18 @@
-# slurm-job-tunnel
+# SLURM Job Tunnel
 
 ## Overview
 
-`slurm-job-tunnel` is tool to setup an SSH tunnel to connect VSCode to a SLURM job running on a HPC.
-The tunnel is created by submitting a SLURM job to the HPC. The job runs an SSHD server in a singularity image on an available port.
-The tool then retrieves the port number of the SSHD server and the hostname of the compute node it is running on, and creates a corresponding host entry in your `~/.ssh/config`.
-This entry is then used to connect to the SLURM job from your local machine using VSCode.
-To stop the SLURM job and close the tunnel, you can simply terminate the local process.
+`slurm-job-tunnel` is a utility to submit a SLURM job with specified resources and establish an SSH tunnel to the allocated compute node.
+
+A tunnel sbatch script is created on the remote host using `rsync`. The script finds an available port on the compute node, starts up an SSH server within a singularity image, and writes the port and hostname of the SSH server to the SBATCH output file.
+
+The port and hostname are retreived locally, and a corresponding host entry is created in your `~/.ssh/config`.
+This entry is then used to connect to the SLURM job from your local machine over SSH.
+
+When available, a VSCode instance is opened locally when the tunnel has been succesfully established.
+You can now connect to the SLURM job from your local VSCode instance (CTRL+SHIFT+P, then `Remote-SSH`), and the tunnel will remain open until the time limit of the job runs out or you terminate the local process.
+
+To stop the SLURM job and close the tunnel, terminate the local process (`CTRL+C`).
 
 ## Prerequisites
 
