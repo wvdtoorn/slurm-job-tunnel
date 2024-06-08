@@ -3,13 +3,13 @@ import os
 import shutil
 import signal
 import subprocess
-import sys
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import psutil
+import sys
 
 from ssh_config import SSHConfig, SSHEntry
 
@@ -20,18 +20,26 @@ logging.basicConfig(
     format="%(asctime)s %(message)s", datefmt="%H:%M:%S", level=logging.INFO
 )
 
-parser = argparse.ArgumentParser(description="SLURM Tunnel Script")
-parser.add_argument(
-    "--time",
-    type=int,
-    required=True,
-    help="Time in minutes for the SLURM job / tunnel",
+parser = argparse.ArgumentParser(
+    description=(
+        "SLURM Job Tunnel: A utility to submit a SLURM job with specified resources "
+        "and establish an SSH tunnel to the allocated compute node. It also integrates "
+        "with Visual Studio Code to provide a seamless development environment "
+        "on the remote host."
+    )
 )
+
 parser.add_argument(
     "--remote_host",
     type=str,
     required=True,
-    help="The remote host for the SLURM login node",
+    help="The remote host for the SLURM login node, as defined in your ssh config.",
+)
+parser.add_argument(
+    "--time",
+    type=str,
+    default="1:00:00",
+    help="Time for the SLURM job / tunnel. Format is HH:MM:SS. Default is 1 hour.",
 )
 parser.add_argument(
     "--cpus",
@@ -45,52 +53,108 @@ parser.add_argument(
     default="16G",
     help="The amount of memory for the SLURM job",
 )
+
+parser.add_argument(
+    "--qos",
+    type=str,
+    default="hiprio",
+    help="The QOS for the SLURM job",
+)
+
+parser.add_argument(
+    "--partition",
+    type=str,
+    default=None,
+    help="The partition for the SLURM job",
+)
+
 parser.add_argument(
     "--remote_script_path",
     type=str,
     default="tunnel.sbatch",
-    help="Path from the home directory of the remote user to the remote script to be executed. Default is tunnel.sbatch",
+    help="Path from the home directory of the remote user to where the sbatch script should be placed. Default is 'tunnel.sbatch'.",
 )
 parser.add_argument(
     "--remote_sif_path",
     type=str,
     default="singularity/openssh.sif",
-    help="Path from the home directory of the remote user to the remote singularity image to be executed. Default is openssh.sif",
+    help="Path from the home directory of the remote user to the remote singularity image to be executed. Default is 'singularity/openssh.sif'.",
+)
+parser.add_argument(
+    "--sif_bind_path",
+    type=str,
+    default="/scratch/$USER",
+    help="Path on the remote host to bind to the singularity image. Default is '/scratch/$USER'.",
 )
 
 
 @dataclass
+class SBatchCommand:
+    """
+    A class to represent a SLURM sbatch command.
+    """
+
+    script: str = "tunnel.sbatch"
+    time: str = "3:00:00"
+    cpus: int = 8
+    mem: str = "16G"
+    qos: str = "hiprio"
+    output: str = "tunnel.out"
+    export: List[str] = field(default_factory=["SIF_IMAGE=singularity/openssh.sif"])
+    partition: str = None
+    gpus: int = None
+    mem_per_gpu: int = None
+
+    def command(self) -> str:
+        command = ["sbatch"]
+        if self.time:
+            command.append(f"--time={self.time}")
+        if self.cpus:
+            command.append(f"--cpus-per-task={self.cpus}")
+        if self.mem:
+            command.append(f"--mem={self.mem}")
+        if self.qos:
+            command.append(f"--qos={self.qos}")
+        if self.partition:
+            command.append(f"--partition={self.partition}")
+        if self.output:
+            command.append(f"--output={self.output}")
+        if self.export:
+            command.append(f"--export={','.join(self.export)}")
+
+        command.append(self.script)
+        command = " ".join(command)
+        return command
+
+
+@dataclass
 class JobTunnel:
-    time: int  # in minutes
+    job_command: SBatchCommand
     remote_host: str
-    cpus: int
-    mem: str  # e.g. 500M, 16G
-    remote_path: str  # script to be executed on the remote host
-    remote_sif_path: str  # singularity image to be executed on the remote host
 
     # post-init attributes
-    job_id: str = None
-    local_start_time: int = None
+    job_id: int = None
     port: int = None
     node: str = None
+    termination_time: datetime = None
 
-    def __post_init__(self) -> None:
-        self.remote_output_path = self.remote_path.replace(
-            os.path.expanduser("~"), ""
-        ).replace(".sbatch", ".out")
-        self.local_start_time = int(time.time())
+    def submit_slurm_job(self) -> int:
 
-    def start_slurm_job(self) -> None:
         result = subprocess.run(
             [
                 "ssh",
                 self.remote_host,
-                f"sbatch --time={self.time} --output={self.remote_output_path} {os.path.join('~', self.remote_path)}",
+                self.job_command.command(),
             ],
             capture_output=True,
             text=True,
         )
-        self.job_id = result.stdout.strip().split()[-1]
+
+        if result.returncode != 0:
+            raise ValueError(f"Failed to submit SLURM job: {result.stderr}")
+
+        self.job_id = int(result.stdout.strip().split()[-1])
+        return self.job_id
 
     def cancel_slurm_job(self) -> None:
         if self.job_status in ["PENDING", "RUNNING", "STOPPED"]:
@@ -115,60 +179,56 @@ class JobTunnel:
     def job_running(self) -> bool:
         return self.job_status == "RUNNING"
 
-    def watch_output_for_text(self, watch_text: str, wait_time: float = 0.01) -> str:
+    def watch_output_for_text(
+        self, watch_texts: List[str], wait_time: float = 0.01
+    ) -> List[str]:
         while True:
             result = subprocess.run(
-                ["ssh", self.remote_host, f"cat {self.remote_output_path}"],
+                ["ssh", self.remote_host, f"cat {self.job_command.output}"],
                 capture_output=True,
                 text=True,
             )
             output = result.stdout
+            found_texts = []
             for line in output.splitlines():
-                if watch_text in line:
-                    return line
+                for watch_text in watch_texts:
+                    if watch_text in line:
+                        found_texts.append(line)
+                if len(found_texts) == len(watch_texts):
+                    return found_texts
             time.sleep(wait_time)
 
-    def get_tunnel_info(self) -> Tuple[str, str]:
+    def get_tunnel_info(self) -> Tuple[int, str, datetime]:
         if not self.job_running:
             raise ValueError("Job is not running")
-        output = self.watch_output_for_text("PORT=")
-        port = output.split("=")[1]
-        output = self.watch_output_for_text("NODE=")
-        node = output.split("=")[1]
-        self.port = port
+
+        output_lines = self.watch_output_for_text(
+            ["PORT=", "NODE=", "This tunnel will close at: "]
+        )
+
+        port = next(line.split("=")[1] for line in output_lines if "PORT=" in line)
+        node = next(line.split("=")[1] for line in output_lines if "NODE=" in line)
+        termination_time = next(
+            line.split("at: ")[1]
+            for line in output_lines
+            if "This tunnel will close at: " in line
+        )
+
+        self.port = int(port)
         self.node = node
-        return port, node
+        self.termination_time = datetime.strptime(termination_time, "%Y-%m-%d %H:%M:%S")
 
-    def create_job_script(self) -> None:
-        lines = []
-        with open(SBATCH_SCRIPT, "r") as file:
-            for line in file:
-                if "CPUS_PER_TASK" in line:
-                    lines.append(line.replace("CPUS_PER_TASK", str(self.cpus)))
-                elif "MEM" in line:
-                    lines.append(line.replace("MEM", self.mem))
-                elif "REMOTE_SIF_PATH" in line:
-                    lines.append(line.replace("REMOTE_SIF_PATH", self.remote_sif_path))
-                else:
-                    lines.append(line)
-
-        with open(SBATCH_SCRIPT + ".local", "w") as file:
-            file.write("\n".join(lines))
+        return self.port, self.node, self.termination_time
 
     def sync_job_script(self) -> None:
         command = [
             "rsync",
             "-az",
-            SBATCH_SCRIPT + ".local",
-            f"{self.remote_host}:~/{self.remote_path}",
+            SBATCH_SCRIPT,
+            f"{self.remote_host}:~/{self.job_command.script}",
         ]
         subprocess.run(command)
-
-    def setup_slurm_job(self) -> None:
-        self.create_job_script()
-        self.sync_job_script()
-        # remove local script
-        os.remove(SBATCH_SCRIPT + ".local")
+        logging.info("Synced job script to remote host")
 
 
 def is_code_installed() -> bool:
@@ -217,6 +277,7 @@ def cleanup(
     ssh_config: SSHConfig = None,
     tunnel_entry: SSHEntry = None,
     prev_code_pids: List[int] = None,
+    exit: bool = False,
 ) -> None:
     logging.info("Cleaning up")
     if job_tunnel:
@@ -229,33 +290,48 @@ def cleanup(
         ssh_config.remove_entry(tunnel_entry.host)
         logging.info("Cleaned up SSH config")
 
-    logging.info("All cleaned up. Goodbye!")
+    if exit:
+        logging.info("Done. Goodbye!")
+        sys.exit(0)
 
 
 def main() -> None:
     args = parser.parse_args()
 
-    job_tunnel = JobTunnel(
+    job_command = SBatchCommand(
+        script=args.remote_script_path,
         time=args.time,
-        remote_host=args.remote_host,
         cpus=args.cpus,
         mem=args.mem,
-        remote_path=args.remote_script_path,
-        remote_sif_path=args.remote_sif_path,
+        qos=args.qos,
+        partition=args.partition,
+        output=args.remote_script_path.replace(".sbatch", ".out"),
+        export=[
+            (f"SIF_BIND_PATH=" + f"{args.sif_bind_path}" if args.sif_bind_path else ""),
+            f"SIF_IMAGE={args.remote_sif_path}",
+        ],
     )
 
-    signal.signal(signal.SIGINT, lambda sig, frame: cleanup(job_tunnel=job_tunnel))
+    job_tunnel = JobTunnel(
+        job_command=job_command,
+        remote_host=args.remote_host,
+    )
+
+    signal.signal(
+        signal.SIGINT,
+        lambda sig, frame: cleanup(job_tunnel=job_tunnel, exit=True),
+    )
 
     logging.info("Validating SSH config")
     ssh_config_path = os.path.expanduser("~/.ssh/config")
     ssh_config = SSHConfig(ssh_config_path)
-    remote_entry = ssh_config.get_entry(job_tunnel.remote_host)
+    remote_entry: SSHEntry = ssh_config.get_entry(job_tunnel.remote_host)
 
-    logging.info("Setting up job script on remote host")
-    job_tunnel.setup_slurm_job()
+    logging.info("Syncing job script to remote host")
+    job_tunnel.sync_job_script()
 
-    job_tunnel.start_slurm_job()
-    logging.info(f"Submitted batch job {job_tunnel.job_id}")
+    job_id = job_tunnel.submit_slurm_job()
+    logging.info(f"Submitted sbatch job {job_id}")
     logging.info("Waiting for job to start")
 
     while not job_tunnel.job_running:
@@ -263,15 +339,11 @@ def main() -> None:
         time.sleep(5)
 
     logging.info("Job is running")
+    port, node, termination_time = job_tunnel.get_tunnel_info()
 
-    port, node = job_tunnel.get_tunnel_info()
-
-    logging.info("Tunnel established")
-    logging.info(f"Port={port}")
-    logging.info(f"Node={node}")
-    termination_time = datetime.now() + timedelta(minutes=job_tunnel.time)
+    logging.info("Tunnel established (node={node}, port={port})")
     logging.info(
-        f"This tunnel will terminate at {termination_time.strftime('%H:%M:%S')}"
+        f"This tunnel will terminate at {termination_time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     tunnel_entry = SSHEntry(
@@ -289,7 +361,10 @@ def main() -> None:
     signal.signal(
         signal.SIGINT,
         lambda sig, frame: cleanup(
-            job_tunnel=job_tunnel, ssh_config=ssh_config, tunnel_entry=tunnel_entry
+            job_tunnel=job_tunnel,
+            ssh_config=ssh_config,
+            tunnel_entry=tunnel_entry,
+            exit=True,
         ),
     )
 
@@ -307,6 +382,7 @@ def main() -> None:
                 ssh_config=ssh_config,
                 tunnel_entry=tunnel_entry,
                 prev_code_pids=prev_code_pids,
+                exit=True,
             ),
         )
 
@@ -321,8 +397,8 @@ def main() -> None:
         "This will also terminate any started code IDE processes."
     )
 
-    time.sleep((job_tunnel.time - 1) * 60)
-    logging.info("Tunnel will close in <1 minute!")
+    time.sleep((job_tunnel.termination_time - datetime.now()).total_seconds() - 60)
+    logging.info("Tunnel will close in 1 minute!")
     time.sleep(60)
     logging.info("Tunnel closed")
 
@@ -331,6 +407,7 @@ def main() -> None:
         ssh_config=ssh_config,
         tunnel_entry=tunnel_entry,
         prev_code_pids=prev_code_pids,
+        exit=True,
     )
 
 
