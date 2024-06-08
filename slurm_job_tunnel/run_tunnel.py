@@ -252,16 +252,14 @@ def run_tunnel(config: "TunnelConfig") -> None:
         lambda sig, frame: cleanup(job_tunnel=job_tunnel, exit=True),
     )
 
-    logging.info(
-        f"Validating SSH config (~/.ssh/config). Host: {job_tunnel.remote_host}"
-    )
     ssh_config_path = os.path.expanduser("~/.ssh/config")
+    logging.info(
+        f"Validating SSH config ({ssh_config_path}). Host: {job_tunnel.remote_host}"
+    )
     ssh_config = SSHConfig(ssh_config_path)
     remote_entry: SSHEntry = ssh_config.get_entry(job_tunnel.remote_host)
 
-    logging.info(
-        f"Validated SSH config (~/.ssh/config). Host: {job_tunnel.remote_host}"
-    )
+    logging.info(f"Validated SSH config")
 
     logging.info(f"Submitting tunnel.sbatch job to {job_tunnel.remote_host}")
     logging.info(f"Job command: {job_command.command()}")
