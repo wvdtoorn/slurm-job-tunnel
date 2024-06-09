@@ -4,7 +4,8 @@
 
 `slurm-job-tunnel` is a utility to submit a SLURM job with specified resources and establish an SSH tunnel to the allocated compute node.
 
-A tunnel sbatch script is run to find an available port on the compute node and start up an SSH server within a singularity image. The script writes the port and hostname of the SSH server to the SBATCH output file.
+A tunnel sbatch script is run to find an available port on the compute node and start up an SSH server within a `singularity` image.
+The script writes the port and hostname of the SSH server to the SBATCH output file.
 
 The port and hostname are retreived locally, and a corresponding host entry is created in your `~/.ssh/config`.
 This entry is then used to connect to the SLURM job from your local machine over SSH.
@@ -20,10 +21,10 @@ To stop the SLURM job and close the tunnel, terminate the local process (`CTRL+C
 
 In `PATH` on the local machine:
 
-- `python` (Python 3.6+)
+- `python` (Python 3.6+, no packages required)
 - `singularity`
-- `code` (VSCode)
 - `ssh`
+- [OPTIONAL] `code` (VSCode)
 
 In addition, you're ssh config, located at `~/.ssh/config`, should contain a valid host for the login node of the HPC.
 For example, if you named this host `hpc-login`, running `ssh hpc-login` should connect you to the login node.
@@ -47,11 +48,11 @@ pip install .
 Copy `tunnel.sbatch` to the remote host, for example:
 
 ```sh
-rsync -avz tunnel.sbatch <REMOTE_HOST>:<REMOTE_SBATCH_PATH>
+rsync -avz tunnel.sbatch <REMOTE_HOST>:~/<REMOTE_SBATCH_PATH>
 ```
 
 - `<REMOTE_HOST>`: The hostname of the SLURM login node (for example: `hpc-login`)
-- `<REMOTE_SBATCH_PATH>`: The path to the tunnel.sbatch script on the remote (for example: `tunnel.sbatch`)
+- `<REMOTE_SBATCH_PATH>`: The path to the tunnel.sbatch script on the remote, from the home directory of the remote user (for example: `tunnel.sbatch`)
 
 The path used for `<REMOTE_SBATCH_PATH>` should be set once during `slurm-job-tunnel init` (see below).
 
@@ -69,43 +70,58 @@ rsync -avz openssh.sif <REMOTE_HOST>:~/<REMOTE_SIF_PATH>
 ```
 
 - `<REMOTE_HOST>`: The hostname of the SLURM login node (for example, `hpc-login`)
-- `<REMOTE_SIF_PATH>`: The path to the singularity image on the remote (for example, `singularity/openssh.sif`)
+- `<REMOTE_SIF_PATH>`: The path to the singularity image on the remote, from the home directory of the remote user (for example, `singularity/openssh.sif`)
 
 The path used for `<REMOTE_SIF_PATH>` should be set once during `slurm-job-tunnel init` (see below).
 
 ## Usage
 
 ```
-usage: slurm-job-tunnel [-h] [--remote_host REMOTE_HOST] [--time TIME] [--cpus CPUS] [--mem MEM] [--qos QOS] [--partition PARTITION]
-                        [--remote_sbatch_path REMOTE_SBATCH_PATH] [--remote_sif_path REMOTE_SIF_PATH] [--sif_bind_path SIF_BIND_PATH]
-                        {init,run}
-
-SLURM Job Tunnel: A utility to submit a SLURM job with specified resources and establish an SSH tunnel to the allocated compute node. It also integrates with
-Visual Studio Code to provide a seamless development environment on the remote host.
+usage: slurm-job-tunnel [-h] {init,run,reset} ...
 
 positional arguments:
-  {init,run}            The mode to run the SLURM job tunnel in. 'init' initializes the SLURM job tunnel by creating a default configuration file. 'run'
-                        allocates the requested resources and establishes the SSH tunnel.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --remote_host REMOTE_HOST
-                        The remote host for the SLURM login node, as defined in ~/.ssh/config.
-  --time TIME           Time limit for the SLURM job. Format is DD-HH:MM:SS, HH:MM:SS, or MM:SS.
-  --cpus CPUS           The number of CPUs for the SLURM job.
-  --mem MEM             The amount of memory for the SLURM job.
-  --qos QOS             The QOS for the SLURM job
-  --partition PARTITION
-                        The partition for the SLURM job
-  --remote_sbatch_path REMOTE_SBATCH_PATH
-                        Path from the home directory of the remote user to where the sbatch script should be placed.
-  --remote_sif_path REMOTE_SIF_PATH
-                        Path from the home directory of the remote user to the remote singularity image to be executed.
-  --sif_bind_path SIF_BIND_PATH
-                        Path on the remote host to bind to the singularity image. Default is '/scratch/$USER'.
+  {init,run,reset}
+    init            Initialize the SLURM job tunnel by creating a configuration file.
+    run             Allocate the requested resources and establish the SSH tunnel.
+    reset           Reset the tool configuration to default values.
 ```
 
-### Initialize
+### Options for `init` and `run`
+
+```
+usage: slurm-job-tunnel {init,run} [-h]
+                             [--remote_host REMOTE_HOST]
+                             [--time TIME]
+                             [--cpus CPUS]
+                             [--mem MEM]
+                             [--qos QOS]
+                             [--partition PARTITION]
+                             [--remote_sbatch_path REMOTE_SBATCH_PATH]
+                             [--remote_sif_path REMOTE_SIF_PATH]
+                             [--sif_bind_path SIF_BIND_PATH]
+
+options:
+  -h, --help            show this help message and exit
+  --time TIME           The time to run the tunnel for, which is the time limit for the SLURM job.
+                        Format is DD-HH:MM:SS, HH:MM:SS, or MM:SS.
+  --remote_host REMOTE_HOST
+                        The remote host for the SLURM login node, as defined in ~/.ssh/config.
+  --cpus CPUS           The number of CPUs to use for the SLURM job.
+  --mem MEM             The amount of memory to use for the SLURM job.
+  --qos QOS             The QOS to use for the SLURM job.
+  --partition PARTITION
+                        The partition to use for the SLURM job.
+  --remote_sbatch_path REMOTE_SBATCH_PATH
+                        The path to the tunnel.sbatch script on the remote, from the home directory 
+                        of the remote user.
+  --remote_sif_path REMOTE_SIF_PATH
+                        The path to the singularity image on the remote, from the home directory 
+                        of the remote user.
+  --sif_bind_path SIF_BIND_PATH
+                        The path to bind the singularity image to on the remote.
+```
+
+### Initialization
 
 It's recommended to initialize the tunnel once, by running:
 
@@ -113,7 +129,7 @@ It's recommended to initialize the tunnel once, by running:
 slurm-job-tunnel init [options]
 ```
 
-This will create a config file located at `~/.slurm-job-tunnel/config.json` with the provided arguments, which henceforth will be used as defaults for the `run` command.
+This will create a (local) config file located at `~/.slurm-job-tunnel/config.json` with the provided arguments, which henceforth will be used as defaults for the `run` command.
 
 ### Create a job tunnel
 

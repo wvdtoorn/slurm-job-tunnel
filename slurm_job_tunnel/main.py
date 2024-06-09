@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+from dataclasses import fields
 
 from .tunnel_config import TunnelConfig
 from .run_tunnel import run_tunnel
@@ -17,7 +18,6 @@ def load_config() -> TunnelConfig:
 
 
 def parse_args() -> TunnelConfig:
-
     config = load_config()
     DEFAULT_CONFIG = TunnelConfig()
 
@@ -33,74 +33,37 @@ def parse_args() -> TunnelConfig:
         )
     )
 
-    parser.add_argument(
-        "mode",
-        type=str,
-        choices=["init", "run"],
-        help=(
-            "The mode to run the SLURM job tunnel in. 'init' initializes the SLURM job tunnel by creating "
-            "a default configuration file. 'run' allocates the requested resources and establishes the "
-            "SSH tunnel."
-        ),
+    subparsers = parser.add_subparsers(dest="mode", required=True)
+
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Initialize the SLURM job tunnel by creating a configuration file.",
+    )
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Allocate the requested resources and establish the SSH tunnel.",
+    )
+    reset_parser = subparsers.add_parser(
+        "reset",
+        help="Reset the tool configuration to default values.",
     )
 
-    parser.add_argument(
-        "--remote_host",
-        type=str,
-        default=get_from_config("remote_host"),
-        help="The remote host for the SLURM login node, as defined in ~/.ssh/config.",
-    )
-    parser.add_argument(
-        "--time",
-        type=str,
-        default=get_from_config("time"),
-        help="Time limit for the SLURM job. Format is DD-HH:MM:SS, HH:MM:SS, or MM:SS.",
-    )
-    parser.add_argument(
-        "--cpus",
-        type=int,
-        default=get_from_config("cpus"),
-        help="The number of CPUs for the SLURM job",
-    )
-    parser.add_argument(
-        "--mem",
-        type=str,
-        default=get_from_config("mem"),
-        help="The amount of memory for the SLURM job",
-    )
-
-    parser.add_argument(
-        "--qos",
-        type=str,
-        default=get_from_config("qos"),
-        help="The QOS for the SLURM job",
-    )
-
-    parser.add_argument(
-        "--partition",
-        type=str,
-        default=get_from_config("partition"),
-        help="The partition for the SLURM job",
-    )
-
-    parser.add_argument(
-        "--remote_sbatch_path",
-        type=str,
-        default=get_from_config("remote_sbatch_path"),
-        help="Path from the home directory of the remote user to where the sbatch script should be placed. Default is 'tunnel.sbatch'.",
-    )
-    parser.add_argument(
-        "--remote_sif_path",
-        type=str,
-        default=get_from_config("remote_sif_path"),
-        help="Path from the home directory of the remote user to the remote singularity image to be executed. Default is 'singularity/openssh.sif'.",
-    )
-    parser.add_argument(
-        "--sif_bind_path",
-        type=str,
-        default=get_from_config("sif_bind_path"),
-        help="Path on the remote host to bind to the singularity image. Default is '/scratch/$USER'.",
-    )
+    for field in fields(TunnelConfig):
+        if not field.name.startswith("_"):
+            field_type = field.type
+            help_text = TunnelConfig.help(field.name)
+            init_parser.add_argument(
+                f"--{field.name}",
+                type=field_type,
+                default=get_from_config(field.name),
+                help=help_text,
+            )
+            run_parser.add_argument(
+                f"--{field.name}",
+                type=field_type,
+                default=get_from_config(field.name),
+                help=help_text,
+            )
 
     args = parser.parse_args()
     return args.mode, TunnelConfig(
@@ -111,14 +74,23 @@ def parse_args() -> TunnelConfig:
 def main():
 
     mode, tunnel_config = parse_args()
+    if mode == "reset":
+        if os.path.exists(CONFIG_FILE):
+            os.remove(CONFIG_FILE)
+            print(f"Removed configuration file {CONFIG_FILE}")
+        else:
+            print(f"Configuration file {CONFIG_FILE} does not exist. Nothing to do.")
+        return
+
     if mode == "init":
 
         if os.path.exists(CONFIG_FILE):
             print(
                 f"Config file {CONFIG_FILE} already exists. Instead of running 'init', "
-                f"you can edit the file directly, or remove the file ('rm {CONFIG_FILE}') and run 'init' again."
+                f"you can edit the file directly, or run 'reset' before running 'init' again."
             )
             return
+
         os.makedirs(CONFIG_DIR, exist_ok=True)
         with open(CONFIG_FILE, "w") as f:
             json.dump(tunnel_config.to_dict(), f, indent=4)
