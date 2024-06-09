@@ -5,11 +5,12 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        # Add any dependencies here
+        "slurm-job-util @ git+https://github.com/wvdtoorn/slurm-job-util.git"
     ],
     entry_points={
         "console_scripts": [
             "slurm-job-tunnel=slurm_job_tunnel.main:main",
+            "sjt=slurm_job_tunnel.main:main",
         ],
     },
     author="Wiep van de Toorn",

@@ -6,11 +6,12 @@ import time
 import logging
 from datetime import datetime
 from typing import List, Tuple, TYPE_CHECKING
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import psutil
 import sys
 
-from .ssh_config import SSHConfig, SSHEntry
+from slurm_job_util.slurm_job import SBatchCommand, RemoteHost
+from slurm_job_util.ssh_config import SSHConfig, SSHConfigEntry
 
 if TYPE_CHECKING:
     from .tunnel_config import TunnelConfig
@@ -19,55 +20,11 @@ SBATCH_SCRIPT = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "tunnel.sbatch"
 )
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s %(message)s", datefmt="%H:%M:%S", level=logging.INFO
-)
-
-
-@dataclass
-class SBatchCommand:
-    """
-    A class to represent a SLURM sbatch command.
-    """
-
-    script: str = "tunnel.sbatch"
-    time: str = "3:00:00"
-    cpus: int = 8
-    mem: str = "16G"
-    qos: str = "hiprio"
-    output: str = "tunnel.out"
-    export: List[str] = field(default_factory=["SIF_IMAGE=singularity/openssh.sif"])
-    partition: str = None
-    gpus: int = None
-    mem_per_gpu: int = None
-
-    def command(self) -> str:
-        command = ["sbatch"]
-        if self.time:
-            command.append(f"--time={self.time}")
-        if self.cpus:
-            command.append(f"--cpus-per-task={self.cpus}")
-        if self.mem:
-            command.append(f"--mem={self.mem}")
-        if self.qos:
-            command.append(f"--qos={self.qos}")
-        if self.partition:
-            command.append(f"--partition={self.partition}")
-        if self.output:
-            command.append(f"--output={self.output}")
-        if self.export:
-            command.append(f"--export={','.join(self.export)}")
-
-        command.append(self.script)
-        command = " ".join(command)
-        return command
-
 
 @dataclass
 class JobTunnel:
     job_command: SBatchCommand
-    remote_host: str
+    remote_host: RemoteHost
 
     # post-init attributes
     job_id: int = None
@@ -77,15 +34,7 @@ class JobTunnel:
 
     def submit_slurm_job(self) -> int:
 
-        result = subprocess.run(
-            [
-                "ssh",
-                self.remote_host,
-                self.job_command.command(),
-            ],
-            capture_output=True,
-            text=True,
-        )
+        result = self.remote_host.execute(self.job_command)
 
         if result.returncode != 0:
             raise ValueError(f"Failed to submit SLURM job: {result.stderr}")
@@ -100,15 +49,7 @@ class JobTunnel:
 
     @property
     def job_status(self) -> str:
-        result = subprocess.run(
-            [
-                "ssh",
-                self.remote_host,
-                f"squeue -j {self.job_id} -h -o %T",
-            ],
-            capture_output=True,
-            text=True,
-        )
+        result = self.remote_host.execute(f"squeue -j {self.job_id} -h -o %T")
         job_status = result.stdout.strip()
         return job_status
 
@@ -120,11 +61,8 @@ class JobTunnel:
         self, watch_texts: List[str], wait_time: float = 0.01
     ) -> List[str]:
         while True:
-            result = subprocess.run(
-                ["ssh", self.remote_host, f"cat {self.job_command.output}"],
-                capture_output=True,
-                text=True,
-            )
+            result = self.remote_host.execute(f"cat {self.job_command.output}")
+
             output = result.stdout
             found_texts = []
             for line in output.splitlines():
@@ -202,7 +140,7 @@ def kill_code_processes(dont_kill_pids: List[int] = None):
 def cleanup(
     job_tunnel: JobTunnel = None,
     ssh_config: SSHConfig = None,
-    tunnel_entry: SSHEntry = None,
+    tunnel_entry: SSHConfigEntry = None,
     prev_code_pids: List[int] = None,
     exit: bool = False,
 ) -> None:
@@ -227,8 +165,8 @@ def run_tunnel(config: "TunnelConfig") -> None:
     job_command = SBatchCommand(
         script=config.remote_sbatch_path,
         time=config.time,
-        cpus=config.cpus,
-        mem=config.mem,
+        cpus_per_task=config.cpus,
+        mem_per_cpu=config.mem,
         qos=config.qos,
         partition=config.partition,
         output=config.remote_sbatch_path.replace(".sbatch", ".out"),
@@ -257,7 +195,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
         f"Validating SSH config ({ssh_config_path}). Host: {job_tunnel.remote_host}"
     )
     ssh_config = SSHConfig(ssh_config_path)
-    remote_entry: SSHEntry = ssh_config.get_entry(job_tunnel.remote_host)
+    remote_entry: SSHConfigEntry = ssh_config.get_entry(job_tunnel.remote_host)
 
     logging.info(f"Validated SSH config")
 
@@ -280,7 +218,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
         f"This tunnel will terminate at {termination_time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
-    tunnel_entry = SSHEntry(
+    tunnel_entry = SSHConfigEntry(
         host=f"{job_tunnel.remote_host}-job",
         node=node,
         port=port,

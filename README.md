@@ -43,6 +43,9 @@ cd slurm-job-tunnel
 pip install .
 ```
 
+This will install the `slurm-job-tunnel` package along with its dependency, the [`slurm-job-util`](https://github.com/wvdtoorn/slurm-job-util) package.
+After installation, the commands `slurm-job-tunnel` and `sjt` (for short) are available.
+
 ### Copy tunnel.sbatch to remote host
 
 Copy `tunnel.sbatch` to the remote host, for example:
