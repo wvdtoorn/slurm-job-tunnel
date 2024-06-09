@@ -57,18 +57,13 @@ def parse_args() -> TunnelConfig:
         if not field.name.startswith("_"):
             field_type = field.type
             help_text = TunnelConfig.help(field.name)
-            init_parser.add_argument(
-                f"--{field.name}",
-                type=field_type,
-                default=get_from_config(field.name),
-                help=help_text + f" (default: {get_from_config(field.name)})",
-            )
-            run_parser.add_argument(
-                f"--{field.name}",
-                type=field_type,
-                default=get_from_config(field.name),
-                help=help_text + f" (default: {get_from_config(field.name)})",
-            )
+            for subparser in [init_parser, run_parser]:
+                subparser.add_argument(
+                    f"--{field.name}",
+                    type=field_type,
+                    default=get_from_config(field.name),
+                    help=help_text + f" (default: {get_from_config(field.name)})",
+                )
 
     args = parser.parse_args()
     return args.mode, TunnelConfig(
@@ -103,7 +98,7 @@ def main():
         print(f"Default job tunnel configuration saved to {CONFIG_FILE}")
 
     elif mode == "show":
-        print(tunnel_config)
+        print(load_config())
 
     elif mode == "run":
         run_tunnel(tunnel_config)

@@ -10,8 +10,9 @@ from dataclasses import dataclass
 import psutil
 import sys
 
-from slurm_job_util.slurm_job import SBatchCommand, RemoteHost
+from slurm_job_util.slurm_job import SBatchCommand, SlurmJob
 from slurm_job_util.ssh_config import SSHConfig, SSHConfigEntry
+from slurm_job_util.utils import execute_on_host
 
 if TYPE_CHECKING:
     from .tunnel_config import TunnelConfig
@@ -24,46 +25,46 @@ SBATCH_SCRIPT = os.path.join(
 @dataclass
 class JobTunnel:
     job_command: "SBatchCommand"
-    remote_host: "RemoteHost"
+    host: "SSHConfigEntry"
 
     # post-init attributes
     job_id: int = None
     port: int = None
     node: str = None
     termination_time: datetime = None
+    job: SlurmJob = None
+
+    def execute_on_host(self, command: str) -> subprocess.CompletedProcess:
+        return execute_on_host(self.host.host, command)
 
     def submit_slurm_job(self) -> int:
 
-        result = self.remote_host.execute(self.job_command.command, stdout=False)
+        result = self.execute_on_host(self.job_command.command)
 
         if result.returncode != 0:
             raise ValueError(f"Failed to submit SLURM job: {result.stderr}")
 
         self.job_id = int(result.stdout.strip().split()[-1])
+        self.job = SlurmJob(job_id=self.job_id, host=self.host.host)
         return self.job_id
 
     def cancel_slurm_job(self) -> None:
-        if self.job_status in ["PENDING", "RUNNING", "STOPPED"]:
-            self.remote_host.execute(f"scancel {self.job_id}")
-            logging.info("Cancelled the SLURM job")
+        self.job.cancel()
 
     @property
-    def job_status(self) -> str:
-        job_status = self.remote_host.execute(
-            f"squeue -j {self.job_id} -h -o %T"
-        ).stdout.strip()
-        return job_status
+    def status_slurm_job(self) -> str:
+        return self.job.status
 
     @property
     def is_running(self) -> bool:
-        return self.job_status == "RUNNING"
+        return self.job.is_running
 
     def watch_output_for_text(
         self, watch_texts: List[str], wait_time: float = 0.01, timeout: float = 60
     ) -> List[str]:
         start_time = time.time()
         while time.time() - start_time < timeout:
-            output = self.remote_host.execute(f"cat {self.job_command.output}").stdout
+            output = self.execute_on_host(f"cat {self.job_command.output}").stdout
             found_texts = []
             for line in output.splitlines():
                 for watch_text in watch_texts:
@@ -165,6 +166,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
 
     script_ext = os.path.splitext(config.remote_sbatch_path)[1]
     output = config.remote_sbatch_path.replace(f"{script_ext}", ".out")
+
     job_command = SBatchCommand(
         script=config.remote_sbatch_path,
         time=config.time,
@@ -184,9 +186,13 @@ def run_tunnel(config: "TunnelConfig") -> None:
     )
 
     logging.info(f"Validating SSH config")
+
+    ssh_config_path = os.path.join(os.path.expanduser("~"), ".ssh", "config")
+    ssh_config = SSHConfig(ssh_config_path)
+    host_entry = ssh_config.get_entry(config.remote_host)
     job_tunnel = JobTunnel(
         job_command=job_command,
-        remote_host=RemoteHost(config.remote_host),
+        host=host_entry,
     )
 
     signal.signal(
@@ -195,7 +201,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
     )
 
     logging.info(
-        f"Submitting {job_command.script} to {job_tunnel.remote_host.host} with command: {job_command.command}"
+        f"Submitting {job_command.script} to {job_tunnel.host.host} with command: {job_command.command}"
     )
 
     job_id = job_tunnel.submit_slurm_job()
@@ -215,16 +221,14 @@ def run_tunnel(config: "TunnelConfig") -> None:
     )
 
     tunnel_entry = SSHConfigEntry(
-        host=f"{job_tunnel.remote_host.host}-job",
+        host=f"{host_entry.host}-job",
         node=node,
         port=port,
-        user=job_tunnel.remote_host.entry.user,
-        proxy=job_tunnel.remote_host.host,
+        user=host_entry.user,
+        proxy=host_entry.host,
     )
     logging.info(f"Updating SSH config: adding tunnel host '{tunnel_entry.host}'")
 
-    ssh_config_path = os.path.join(os.path.expanduser("~"), ".ssh", "config")
-    ssh_config = SSHConfig(ssh_config_path)
     ssh_config.update_config(tunnel_entry)
 
     logging.info(f"Added tunnel host '{tunnel_entry.host}' to {ssh_config_path}")
