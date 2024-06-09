@@ -23,8 +23,8 @@ SBATCH_SCRIPT = os.path.join(
 
 @dataclass
 class JobTunnel:
-    job_command: SBatchCommand
-    remote_host: RemoteHost
+    job_command: "SBatchCommand"
+    remote_host: "RemoteHost"
 
     # post-init attributes
     job_id: int = None
@@ -34,7 +34,7 @@ class JobTunnel:
 
     def submit_slurm_job(self) -> int:
 
-        result = self.remote_host.execute(self.job_command)
+        result = self.remote_host.execute(self.job_command.command, stdout=False)
 
         if result.returncode != 0:
             raise ValueError(f"Failed to submit SLURM job: {result.stderr}")
@@ -44,26 +44,26 @@ class JobTunnel:
 
     def cancel_slurm_job(self) -> None:
         if self.job_status in ["PENDING", "RUNNING", "STOPPED"]:
-            subprocess.run(["ssh", self.remote_host, f"scancel {self.job_id}"])
+            self.remote_host.execute(f"scancel {self.job_id}")
             logging.info("Cancelled the SLURM job")
 
     @property
     def job_status(self) -> str:
-        result = self.remote_host.execute(f"squeue -j {self.job_id} -h -o %T")
-        job_status = result.stdout.strip()
+        job_status = self.remote_host.execute(
+            f"squeue -j {self.job_id} -h -o %T"
+        ).stdout.strip()
         return job_status
 
     @property
-    def job_running(self) -> bool:
+    def is_running(self) -> bool:
         return self.job_status == "RUNNING"
 
     def watch_output_for_text(
-        self, watch_texts: List[str], wait_time: float = 0.01
+        self, watch_texts: List[str], wait_time: float = 0.01, timeout: float = 60
     ) -> List[str]:
-        while True:
-            result = self.remote_host.execute(f"cat {self.job_command.output}")
-
-            output = result.stdout
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            output = self.remote_host.execute(f"cat {self.job_command.output}").stdout
             found_texts = []
             for line in output.splitlines():
                 for watch_text in watch_texts:
@@ -72,9 +72,10 @@ class JobTunnel:
                 if len(found_texts) == len(watch_texts):
                     return found_texts
             time.sleep(wait_time)
+        raise TimeoutError(f"Timed out waiting for {watch_texts}")
 
     def get_tunnel_info(self) -> Tuple[int, str, datetime]:
-        if not self.job_running:
+        if not self.is_running:
             raise ValueError("Job is not running")
 
         output_lines = self.watch_output_for_text(
@@ -162,6 +163,8 @@ def cleanup(
 
 def run_tunnel(config: "TunnelConfig") -> None:
 
+    script_ext = os.path.splitext(config.remote_sbatch_path)[1]
+    output = config.remote_sbatch_path.replace(f"{script_ext}", ".out")
     job_command = SBatchCommand(
         script=config.remote_sbatch_path,
         time=config.time,
@@ -169,7 +172,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
         mem_per_cpu=config.mem,
         qos=config.qos,
         partition=config.partition,
-        output=config.remote_sbatch_path.replace(".sbatch", ".out"),
+        output=output,
         export=[
             (
                 f"SIF_BIND_PATH=" + f"{config.sif_bind_path}"
@@ -180,9 +183,10 @@ def run_tunnel(config: "TunnelConfig") -> None:
         ],
     )
 
+    logging.info(f"Validating SSH config")
     job_tunnel = JobTunnel(
         job_command=job_command,
-        remote_host=config.remote_host,
+        remote_host=RemoteHost(config.remote_host),
     )
 
     signal.signal(
@@ -190,24 +194,16 @@ def run_tunnel(config: "TunnelConfig") -> None:
         lambda sig, frame: cleanup(job_tunnel=job_tunnel, exit=True),
     )
 
-    ssh_config_path = os.path.expanduser("~/.ssh/config")
     logging.info(
-        f"Validating SSH config ({ssh_config_path}). Host: {job_tunnel.remote_host}"
+        f"Submitting {job_command.script} to {job_tunnel.remote_host.host} with command: {job_command.command}"
     )
-    ssh_config = SSHConfig(ssh_config_path)
-    remote_entry: SSHConfigEntry = ssh_config.get_entry(job_tunnel.remote_host)
-
-    logging.info(f"Validated SSH config")
-
-    logging.info(f"Submitting tunnel.sbatch job to {job_tunnel.remote_host}")
-    logging.info(f"Job command: {job_command.command()}")
 
     job_id = job_tunnel.submit_slurm_job()
-    logging.info(f"Submitted tunnel.sbatch job. Job ID: {job_id}")
+    logging.info(f"Submitted job. Job ID: {job_id}")
     logging.info("Waiting for job to start")
 
-    while not job_tunnel.job_running:
-        logging.info("Job is queued")
+    while not job_tunnel.is_running:
+        logging.info("Job is queued, sleeping for 5 seconds")
         time.sleep(5)
 
     logging.info("Job is running")
@@ -219,13 +215,16 @@ def run_tunnel(config: "TunnelConfig") -> None:
     )
 
     tunnel_entry = SSHConfigEntry(
-        host=f"{job_tunnel.remote_host}-job",
+        host=f"{job_tunnel.remote_host.host}-job",
         node=node,
         port=port,
-        user=remote_entry.user,
-        proxy=job_tunnel.remote_host,
+        user=job_tunnel.remote_host.entry.user,
+        proxy=job_tunnel.remote_host.host,
     )
     logging.info(f"Updating SSH config: adding tunnel host '{tunnel_entry.host}'")
+
+    ssh_config_path = os.path.join(os.path.expanduser("~"), ".ssh", "config")
+    ssh_config = SSHConfig(ssh_config_path)
     ssh_config.update_config(tunnel_entry)
 
     logging.info(f"Added tunnel host '{tunnel_entry.host}' to {ssh_config_path}")
