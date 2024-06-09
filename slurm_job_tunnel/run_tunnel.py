@@ -9,6 +9,9 @@ from typing import List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 import psutil
 import sys
+import tkinter as tk
+from tkinter import messagebox
+
 
 from slurm_job_util.slurm_job import SBatchCommand, SlurmJob
 from slurm_job_util.ssh_config import SSHConfig, SSHConfigEntry
@@ -20,6 +23,18 @@ if TYPE_CHECKING:
 SBATCH_SCRIPT = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "tunnel.sbatch"
 )
+
+
+def show_warning():
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    messagebox.showwarning(
+        "Warning",
+        "The tunnel on the HPC will close in less than 1 minute! Save your work and close the IDE."
+        " After accepting this warning, the tunnel will be closed locally.",
+    )
+    root.destroy()
 
 
 @dataclass
@@ -274,7 +289,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
 
     time.sleep((job_tunnel.termination_time - datetime.now()).total_seconds() - 60)
     logging.info("Tunnel will close in 1 minute!")
-    time.sleep(60)
+    show_warning()
     logging.info("Tunnel closed")
 
     cleanup(
