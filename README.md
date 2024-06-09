@@ -87,6 +87,7 @@ positional arguments:
     init            Initialize the SLURM job tunnel by creating a configuration file.
     run             Allocate the requested resources and establish the SSH tunnel.
     reset           Reset the tool configuration to default values.
+    show            Show the configuration.
 ```
 
 ### Options for `init` and `run`

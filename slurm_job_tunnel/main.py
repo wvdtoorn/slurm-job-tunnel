@@ -48,6 +48,11 @@ def parse_args() -> TunnelConfig:
         help="Reset the tool configuration to default values.",
     )
 
+    show_parser = subparsers.add_parser(
+        "show",
+        help="Show the configuration.",
+    )
+
     for field in fields(TunnelConfig):
         if not field.name.startswith("_"):
             field_type = field.type
@@ -82,7 +87,7 @@ def main():
             print(f"Configuration file {CONFIG_FILE} does not exist. Nothing to do.")
         return
 
-    if mode == "init":
+    elif mode == "init":
 
         if os.path.exists(CONFIG_FILE):
             print(
@@ -97,5 +102,11 @@ def main():
 
         print(f"Default job tunnel configuration saved to {CONFIG_FILE}")
 
+    elif mode == "show":
+        print(tunnel_config)
+
     elif mode == "run":
         run_tunnel(tunnel_config)
+
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
