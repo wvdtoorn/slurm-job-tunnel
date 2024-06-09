@@ -56,13 +56,13 @@ def parse_args() -> TunnelConfig:
                 f"--{field.name}",
                 type=field_type,
                 default=get_from_config(field.name),
-                help=help_text,
+                help=help_text + f" (default: {get_from_config(field.name)})",
             )
             run_parser.add_argument(
                 f"--{field.name}",
                 type=field_type,
                 default=get_from_config(field.name),
-                help=help_text,
+                help=help_text + f" (default: {get_from_config(field.name)})",
             )
 
     args = parser.parse_args()
