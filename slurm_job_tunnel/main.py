@@ -27,9 +27,7 @@ def parse_args() -> TunnelConfig:
     parser = argparse.ArgumentParser(
         description=(
             "SLURM Job Tunnel: A utility to submit a SLURM job with specified resources "
-            "and establish an SSH tunnel to the allocated compute node. It also integrates "
-            "with Visual Studio Code to provide a seamless development environment "
-            "on the remote host."
+            "and establish an SSH tunnel to the allocated compute node."
         )
     )
 

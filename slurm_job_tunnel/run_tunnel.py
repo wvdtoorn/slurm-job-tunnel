@@ -1,5 +1,4 @@
 import os
-import shutil
 import signal
 import subprocess
 import time
@@ -7,10 +6,10 @@ import logging
 from datetime import datetime
 from typing import List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
-import psutil
 import sys
 import tkinter as tk
 from tkinter import messagebox
+import threading
 
 
 from slurm_job_util.slurm_job import SBatchCommand, SlurmJob
@@ -25,7 +24,10 @@ SBATCH_SCRIPT = os.path.join(
 )
 
 
-def show_warning():
+def show_time_limit_warning():
+    """
+    Show a blocking popup with the time limit warning.
+    """
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
@@ -35,6 +37,24 @@ def show_warning():
         " After accepting this warning, the tunnel will be closed locally.",
     )
     root.destroy()
+
+
+def show_tunnel_ready_info():
+    """
+    Show a non-blocking popup with the tunnel ready info.
+    """
+
+    def show_popup():
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        messagebox.showinfo(
+            "Info",
+            "The tunnel on the HPC is ready! You can now connect to the tunnel using 'ssh {tunnel_entry.host}'.",
+        )
+        root.destroy()
+
+    threading.Thread(target=show_popup).start()
 
 
 @dataclass
@@ -113,60 +133,15 @@ class JobTunnel:
         return self.port, self.node, self.termination_time
 
 
-def is_code_installed() -> bool:
-    """Check if 'code' (Visual Studio Code) is installed in the system's PATH."""
-    return shutil.which("code") is not None
-
-
-def get_code_pids():
-    code_pids = []
-    for proc in psutil.process_iter(["pid", "cmdline"]):
-        try:
-            if f"{os.sep}code" in " ".join(proc.info["cmdline"]):
-                code_pids.append(proc.info["pid"])
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied,
-            psutil.ZombieProcess,
-            FileNotFoundError,
-        ):
-            pass
-
-    return code_pids
-
-
-def kill_code_processes(dont_kill_pids: List[int] = None):
-    code_pids = get_code_pids()
-    for pid in code_pids:
-        if dont_kill_pids and pid in dont_kill_pids:
-            continue
-        try:
-            psutil.Process(pid).terminate()
-            psutil.wait_procs([psutil.Process(pid)], timeout=0.1)
-        except (
-            psutil.NoSuchProcess,
-            psutil.AccessDenied,
-            psutil.ZombieProcess,
-            FileNotFoundError,
-        ):
-            pass
-
-    logging.info("Killed code processes")
-
-
 def cleanup(
     job_tunnel: JobTunnel = None,
     ssh_config: SSHConfig = None,
     tunnel_entry: SSHConfigEntry = None,
-    prev_code_pids: List[int] = None,
     exit: bool = False,
 ) -> None:
     logging.info("Cleaning up the tunnel...")
     if job_tunnel:
         job_tunnel.cancel_slurm_job()  # has own logging
-
-    if prev_code_pids:
-        kill_code_processes(dont_kill_pids=prev_code_pids)  # has own logging
 
     if ssh_config and tunnel_entry:
         ssh_config.remove_entry(tunnel_entry.host)
@@ -258,44 +233,20 @@ def run_tunnel(config: "TunnelConfig") -> None:
         ),
     )
 
-    prev_code_pids = None
-    if is_code_installed():
-        logging.info("Starting code IDE application")
-        # code starts up multiple processes, so we need to kill them later
-        prev_code_pids = get_code_pids()
-        subprocess.Popen("code")
-
-        signal.signal(
-            signal.SIGINT,
-            lambda sig, frame: cleanup(
-                job_tunnel=job_tunnel,
-                ssh_config=ssh_config,
-                tunnel_entry=tunnel_entry,
-                prev_code_pids=prev_code_pids,
-                exit=True,
-            ),
-        )
-
-    else:
-        logging.info("Code is not installed. Skipping code IDE application startup.")
-        logging.info(
-            f"You can still use the tunnel manually, using 'ssh {tunnel_entry.host}'"
-        )
+    show_tunnel_ready_info()
 
     logging.info(
         "To cancel the slurm job and close this job tunnel, stop this script by pressing Ctrl+C. "
-        "This will also terminate any started code IDE processes."
     )
 
     time.sleep((job_tunnel.termination_time - datetime.now()).total_seconds() - 60)
     logging.info("Tunnel will close in 1 minute!")
-    show_warning()
+    show_time_limit_warning()
     logging.info("Tunnel closed")
 
     cleanup(
         job_tunnel=job_tunnel,
         ssh_config=ssh_config,
         tunnel_entry=tunnel_entry,
-        prev_code_pids=prev_code_pids,
         exit=True,
     )

@@ -8,10 +8,9 @@ A tunnel sbatch script is run to find an available port on the compute node and 
 The script writes the port and hostname of the SSH server to the SBATCH output file.
 
 The port and hostname are retreived locally, and a corresponding host entry is created in your `~/.ssh/config`.
-This entry is then used to connect to the SLURM job from your local machine over SSH.
+This entry can be used to connect to the SLURM job from your local machine over SSH.
 
-When available, a VSCode instance is opened locally when the tunnel has been succesfully established.
-You can now connect to the SLURM job from your local VSCode instance (CTRL+SHIFT+P, then `Remote-SSH`), and the tunnel will remain open until the time limit of the job runs out or you terminate the local process.
+The tunnel will remain open until the time limit of the job runs out or you terminate the local process, whatever comes first.
 
 To stop the SLURM job and close the tunnel, terminate the local process (`CTRL+C`).
 
@@ -24,7 +23,6 @@ In `PATH` on the local machine:
 - `python` (Python 3.6+, no packages required)
 - `singularity`
 - `ssh`
-- [OPTIONAL] `code` (VSCode)
 
 In addition, you're ssh config, located at `~/.ssh/config`, should contain a valid host for the login node of the HPC.
 For example, if you named this host `hpc-login`, running `ssh hpc-login` should connect you to the login node.
@@ -145,7 +143,7 @@ slurm-job-tunnel run [options]
 
 ## Future work
 
-- [ ] Make sure only `USER` can access the tunnel
+- [ ] Update ssh-server settings to make sure only `USER` can access the tunnel
 
 ## License
 
