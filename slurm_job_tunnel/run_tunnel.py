@@ -39,7 +39,7 @@ def show_time_limit_warning():
     root.destroy()
 
 
-def show_tunnel_ready_info():
+def show_tunnel_ready_info(tunnel_entry: SSHConfigEntry):
     """
     Show a non-blocking popup with the tunnel ready info.
     """
@@ -50,7 +50,7 @@ def show_tunnel_ready_info():
         root.attributes("-topmost", True)
         messagebox.showinfo(
             "Info",
-            "The tunnel on the HPC is ready! You can now connect to the tunnel using 'ssh {tunnel_entry.host}'.",
+            f"The tunnel on the HPC is ready! You can now connect to the tunnel using 'ssh {tunnel_entry.host}'.",
         )
         root.destroy()
 
@@ -233,7 +233,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
         ),
     )
 
-    show_tunnel_ready_info()
+    show_tunnel_ready_info(tunnel_entry)
 
     logging.info(
         "To cancel the slurm job and close this job tunnel, stop this script by pressing Ctrl+C. "
