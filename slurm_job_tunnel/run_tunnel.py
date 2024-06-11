@@ -76,9 +76,6 @@ class JobTunnel:
 
         result = self.execute_on_host(self.job_command.command)
 
-        if result.returncode != 0:
-            raise ValueError(f"Failed to submit SLURM job: {result.stderr}")
-
         self.job_id = int(result.stdout.strip().split()[-1])
         self.job = SlurmJob(job_id=self.job_id, host=self.host.host)
         return self.job_id
