@@ -156,11 +156,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
 
     job_command = SBatchCommand(
         script=config.remote_sbatch_path,
-        time=config.time,
-        cpus_per_task=config.cpus,
-        mem_per_cpu=config.mem,
-        qos=config.qos,
-        partition=config.partition,
+        **config.sbatch_kwargs(),
         output=output,
         export=[
             (
