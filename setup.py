@@ -6,10 +6,21 @@ Copyright (c) 2024 by Wiep K. van der Toorn
 """
 
 from setuptools import setup, find_packages
+import re
+
+VERSIONFILE = "slurm_job_tunnel/_version.py"
+verstrline = open(VERSIONFILE, "rt").read()
+VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
+mo = re.search(VSRE, verstrline, re.M)
+if mo:
+    verstr = mo.group(1)
+else:
+    raise RuntimeError("Unable to find version string in %s." % (VERSIONFILE,))
+
 
 setup(
     name="slurm-job-tunnel",
-    version="0.1.0",
+    version=verstr,
     packages=find_packages(),
     install_requires=[
         "slurm-job-util @ git+https://github.com/wvdtoorn/slurm-job-util.git"
