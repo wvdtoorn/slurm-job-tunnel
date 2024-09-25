@@ -212,7 +212,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
 
     tunnel_entry = SSHConfigEntry(
         host=f"{host_entry.host}-job",
-        node=node,
+        hostname=node,
         port=port,
         user=host_entry.user,
         proxy=host_entry.host,
