@@ -70,10 +70,10 @@ class JobTunnel:
     host: "SSHConfigEntry"
 
     # post-init attributes
-    job_id: int = None
-    port: int = None
-    node: str = None
-    termination_time: datetime = None
+    job_id: int | None = None
+    port: int | None = None
+    node: str | None = None
+    termination_time: datetime | None = None
     job: SlurmJob = None
 
     def execute_on_host(self, command: str) -> subprocess.CompletedProcess:
@@ -138,9 +138,9 @@ class JobTunnel:
 
 
 def cleanup(
-    job_tunnel: JobTunnel = None,
-    ssh_config: SSHConfig = None,
-    tunnel_entry: SSHConfigEntry = None,
+    job_tunnel: JobTunnel,
+    ssh_config: SSHConfig | None = None,
+    tunnel_entry: SSHConfigEntry | None = None,
     exit: bool = False,
 ) -> None:
     logging.info("Cleaning up the tunnel...")
@@ -238,6 +238,8 @@ def run_tunnel(config: "TunnelConfig") -> None:
     logging.info(
         "To cancel the slurm job and close this job tunnel, stop this script by pressing Ctrl+C. "
     )
+
+    assert job_tunnel.termination_time is not None, "Termination time is not set"
 
     time.sleep((job_tunnel.termination_time - datetime.now()).total_seconds() - 60)
     logging.info("Tunnel will close in 1 minute!")

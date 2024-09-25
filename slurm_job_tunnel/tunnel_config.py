@@ -14,16 +14,16 @@ from slurm_job_util.slurm_job import SBatchCommand
 class TunnelConfig:
     remote_host: str = "hpc-login"
     time: str = "1:00:00"
-    cpus_per_task: int = None
-    cpus_per_gpu: int = None
-    mem_per_cpu: str = None
-    mem_per_gpu: str = None
-    qos: str = None
-    partition: str = None
-    gpus: int = None
-    nodes: int = None
-    ntasks: int = None
-    ntasks_per_node: int = None
+    cpus_per_task: int | None = None
+    cpus_per_gpu: int | None = None
+    mem_per_cpu: str | None = None
+    mem_per_gpu: str | None = None
+    qos: str | None = None
+    partition: str | None = None
+    gpus: int | None = None
+    nodes: int | None = None
+    ntasks: int | None = None
+    ntasks_per_node: int | None = None
     remote_sbatch_path: str = "tunnel.sbatch"
     remote_sif_path: str = "singularity/openssh.sif"
     sif_bind_path: str = "/scratch/$USER"
@@ -63,7 +63,7 @@ class TunnelConfig:
         }
 
     @staticmethod
-    def help(key: str = None) -> str:
+    def help(key: str | None = None) -> str:
         if key is None:
             return "\n".join([f"{k}: {v}" for k, v in TunnelConfig._help_all().items()])
         return TunnelConfig._help_all().get(key, "")

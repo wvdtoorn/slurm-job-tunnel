@@ -20,7 +20,8 @@ To stop the SLURM job and close the tunnel, terminate the local process (`CTRL+C
 
 In `PATH` on the local machine:
 
-- `python` (Python 3.6+, no packages required)
+- `python>=3.12`
+- `rsync`
 - `singularity`
 - `ssh`
 

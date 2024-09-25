@@ -24,7 +24,7 @@ def load_config() -> TunnelConfig:
     return TunnelConfig()
 
 
-def parse_args() -> TunnelConfig:
+def parse_args() -> tuple[str, TunnelConfig]:
     config = load_config()
     DEFAULT_CONFIG = TunnelConfig()
 
@@ -61,6 +61,18 @@ def parse_args() -> TunnelConfig:
     for field in fields(TunnelConfig):
         if not field.name.startswith("_"):
             field_type = field.type
+
+            try:  # If field_type is a Optional union, get the first type
+                field_args = field_type.__args__  # type: ignore
+                if len(field_args) == 2 and field_args[1] is type(None):
+                    field_type = field_args[0]
+                elif len(field_args) == 1:
+                    field_type = field_args[0]
+                else:
+                    raise ValueError(f"Invalid field type: {field_type}")
+            except AttributeError:
+                pass
+
             help_text = TunnelConfig.help(field.name)
             for subparser in [init_parser, run_parser]:
                 subparser.add_argument(
