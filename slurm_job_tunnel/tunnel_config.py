@@ -1,3 +1,10 @@
+"""
+Slurm Job Tunnel
+
+Copyright (c) 2024 by Wiep K. van der Toorn
+
+"""
+
 from dataclasses import dataclass, asdict
 
 from slurm_job_util.slurm_job import SBatchCommand

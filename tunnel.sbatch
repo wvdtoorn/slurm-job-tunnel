@@ -4,9 +4,19 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 
-# For example, run like:
+#
+# Slurm Job Tunnel
+#
+# Copyright (c) 2024 by Wiep K. van der Toorn
+#
+
+
+# Usage example:
 # $ sbatch --time=120 --mem=8G --qos=hiprio --cpus-per-task=8 tunnel.sbatch
-# where time is set in minutes!
+#
+# Attention: time should be set in minutes!
+#
+
 
 echo "
 ###########################################
