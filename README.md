@@ -141,6 +141,27 @@ To create a job tunnel, run:
 slurm-job-tunnel run [options]
 ```
 
+### Install packages in the singularity image
+
+The singularity image contains the following packages:
+
+- `ssh`
+- `openssh`
+
+Any additional packages can be installed in the image by adding them to the `openssh.def` file, as follows:
+
+```def
+%post
+    # ... existing code ...
+
+    # Install additional packages
+    apt-get install -y <PACKAGE_NAME>
+
+    # ... existing code ...
+```
+
+After updating the `openssh.def` file, the image has to be rebuilt and copied to the remote host, as described above.
+
 ## Future work
 
 - [ ] Update ssh-server settings to make sure only `USER` can access the tunnel
