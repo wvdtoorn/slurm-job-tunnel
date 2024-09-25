@@ -10,7 +10,9 @@ The script writes the port and hostname of the SSH server to the SBATCH output f
 The port and hostname are retreived locally, and a corresponding host entry is created in your `~/.ssh/config`.
 This entry can be used to connect to the SLURM job from your local machine over SSH.
 
-The tunnel will remain open until the time limit of the job runs out or you terminate the local process, whatever comes first.
+In addition, a separate ssh process is started on your local machine to forward a local port to the port of the job tunnel on the remote. You can use this an an alternative way to connect to the SLURM job for use cases that have trouble with the standard tunnel, using `ssh <remote_user>@localhost:<local_port>`.
+
+The tunnel and port forwarding will remain open until the time limit of the job runs out or you terminate the local process, whatever comes first.
 
 To stop the SLURM job and close the tunnel, terminate the local process (`CTRL+C`).
 
@@ -42,7 +44,7 @@ cd slurm-job-tunnel
 pip install .
 ```
 
-This will install the `slurm-job-tunnel` package along with its dependency, the [`slurm-job-util`](https://github.com/wvdtoorn/slurm-job-util) package.
+This will install the `slurm-job-tunnel` package along with its dependencies: the [`slurm-job-util`](https://github.com/wvdtoorn/slurm-job-util) package, `pexpect`.
 After installation, the commands `slurm-job-tunnel` and `sjt` (for short) are available.
 
 ### Copy tunnel.sbatch to remote host
@@ -162,6 +164,10 @@ Any additional packages can be installed in the image by adding them to the `ope
 ```
 
 After updating the `openssh.def` file, the image has to be rebuilt and copied to the remote host, as described above.
+
+### Manual cleanup
+
+If something goes wrong with the job tunnel cleanup, you can manually remove the job tunnel by canceling the SLURM job on the remote host (`scancel <JobID>`), removing the `<host>-job` and `<host>-job-port-forward` entries in `~/.ssh/config`, and stopping the local port forwarding tunnel by killing the `ssh` process (`kill <PID>`). You can find the PID of the `ssh` process by running `netstat -tpln` (from the `net-tools` package). Look for the line with a listening port on `localhost`.
 
 ## Future work
 

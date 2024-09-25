@@ -23,7 +23,8 @@ setup(
     version=verstr,
     packages=find_packages(),
     install_requires=[
-        "slurm-job-util @ git+https://github.com/wvdtoorn/slurm-job-util.git"
+        "slurm-job-util @ git+https://github.com/wvdtoorn/slurm-job-util.git",
+        "pexpect",
     ],
     entry_points={
         "console_scripts": [
