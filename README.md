@@ -24,7 +24,7 @@ In `PATH` on the local machine:
 
 - `python>=3.12`
 - `rsync`
-- `singularity`
+- `singularity` (only to build the image, not needed for running the tunnel)
 - `ssh`
 
 In addition, you're ssh config, located at `~/.ssh/config`, should contain a valid host for the login node of the HPC.
