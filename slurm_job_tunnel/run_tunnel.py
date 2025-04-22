@@ -14,8 +14,6 @@ from datetime import datetime
 from typing import List, Tuple, TYPE_CHECKING
 from dataclasses import dataclass
 import sys
-import tkinter as tk
-from tkinter import messagebox
 import socket
 import threading
 import pexpect
@@ -30,42 +28,6 @@ if TYPE_CHECKING:
 SBATCH_SCRIPT = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "tunnel.sbatch"
 )
-
-
-def show_time_limit_warning():
-    """
-    Show a blocking popup with the time limit warning.
-    """
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    messagebox.showwarning(
-        "Warning",
-        "The tunnel on the HPC will close in less than 1 minute! Save your work and close the IDE."
-        " After accepting this warning, the tunnel will be closed locally.",
-    )
-    root.destroy()
-
-
-def show_tunnel_ready_info(
-    tunnel_entry: SSHConfigEntry, local_tunnel_entry: SSHConfigEntry
-):
-    """
-    Show a non-blocking popup with the tunnel ready info.
-    """
-
-    def show_popup():
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        messagebox.showinfo(
-            "Info",
-            f"The tunnel on the HPC is ready! You can now connect to the tunnel using "
-            f"'ssh {tunnel_entry.host}' or 'ssh {local_tunnel_entry.host}'.",
-        )
-        root.destroy()
-
-    threading.Thread(target=show_popup).start()
 
 
 @dataclass
@@ -268,7 +230,6 @@ def cleanup(
 
 
 def run_tunnel(config: "TunnelConfig") -> None:
-
     script_ext = os.path.splitext(config.remote_sbatch_path)[1]
     output = config.remote_sbatch_path.replace(f"{script_ext}", ".out")
 
@@ -368,7 +329,10 @@ def run_tunnel(config: "TunnelConfig") -> None:
         ),
     )
 
-    show_tunnel_ready_info(tunnel_entry, local_tunnel.local_tunnel_entry)
+    logging.info(
+        f"The tunnel on the HPC is ready! You can now connect to the tunnel using "
+        f"'ssh {tunnel_entry.host}' or 'ssh {local_tunnel.local_tunnel_entry.host}'."
+    )
 
     logging.info(
         "To cancel the slurm job and close this job tunnel, stop this script by pressing Ctrl+C. "
@@ -378,7 +342,6 @@ def run_tunnel(config: "TunnelConfig") -> None:
 
     time.sleep((job_tunnel.termination_time - datetime.now()).total_seconds() - 60)
     logging.info("Tunnel will close in 1 minute!")
-    show_time_limit_warning()
     logging.info("Tunnel closed")
 
     cleanup(
