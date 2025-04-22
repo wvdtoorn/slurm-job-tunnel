@@ -183,6 +183,7 @@ class LocalTunnel:
             hostname="localhost",
             port=self.port,
             user=self.remote_tunnel_entry.user,
+            identity_file=self.remote_tunnel_entry.identity_file,
         )
 
         SSHConfig().update_config(self.local_tunnel_entry)
@@ -293,6 +294,7 @@ def run_tunnel(config: "TunnelConfig") -> None:
         port=port,
         user=host_entry.user,
         proxy=host_entry.host,
+        identity_file=host_entry.identity_file,
     )
     logging.info(f"Updating SSH config: adding tunnel host '{tunnel_entry.host}'")
 
@@ -303,8 +305,8 @@ def run_tunnel(config: "TunnelConfig") -> None:
     logging.info(
         f"SSH config tunnel entry: \n\n{ssh_config.get_entry(tunnel_entry.host)}"
     )
+    
     # find random free port on localhost
-
     logging.info(f"Creating local tunnel to {tunnel_entry.host}:{tunnel_entry.port}")
 
     local_tunnel = LocalTunnel(tunnel_entry)
